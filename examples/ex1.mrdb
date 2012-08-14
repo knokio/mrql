@@ -1,0 +1,7 @@
+-- select mean(age) as res from stuff
+
+def_query media_stuff():
+   table = stuff
+   map
+
+      ola
