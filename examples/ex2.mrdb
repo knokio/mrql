@@ -1,13 +1,13 @@
 -- select mean(age) as res from stuff 
 
 def_query media_stuff():
-   table = stuff
+   def table = stuff
 
-   map(row):
-      emit({"count":1,"sum":row.age})
+   def map(row):
+      {"count":1,"sum":row.age}
 
-   reduce(a,b):
-      return({"sum":a.sum + b.sum, "count":a.count + b.count})
+   def reduce(a,b):
+      {"sum":a.sum + b.sum, "count":a.count + b.count}
 
-   finalize(final_row):
-     return {"res": final_row.sum / final_row.count}
+   def finalize(final_row):
+      {"res": final_row.sum / final_row.count}

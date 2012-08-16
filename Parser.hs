@@ -7,6 +7,7 @@ module Parser(
 import Text.Parsec hiding (State)
 import Text.Parsec.Indent
 import Control.Monad.State
+import Text.Parsec.Expr
 
 type IParser a = ParsecT String () (State SourcePos) a
 
@@ -17,15 +18,30 @@ iParse aParser source_name input =
 type ArgDeclarations = [String]
 type Name = String
 
+
+data Expr = Identifier Name
+          | Object [(Expr,Expr)]
+          | Neg Expr
+          | Plus Expr Expr
+          | Subtract Expr Expr
+          | Mult Expr Expr
+          | Div Expr Expr
+          | StrExpr String
+          | IntExpr Integer
+          | Projection Expr Expr
+   deriving (Show)
+
 data FunctionHeader = FunctionHeader Name ArgDeclarations
    deriving (Show)
 
-data DefQuery = DefQuery FunctionHeader [DefQueryProp]
+data DefQuery = DefQuery FunctionHeader [Def]
    deriving (Show)
 
-data DefQueryProp = DefQPropTable Name
-                  | DefQPropMap String
+data Def = DefScalar Name Expr
+         | DefFn FunctionHeader [Expr]
    deriving (Show)
+
+
 
 lineComment = do
    string "--"
@@ -37,33 +53,90 @@ commentOrSpace =   lineComment
 
 commentsOrSpaces = skipMany commentOrSpace
 
-ident = do
-   i<-many $ alphaNum <|> oneOf "_"
+tk :: IParser a -> IParser a
+tk a = do
+   v <- a
    commentsOrSpaces
-   return i
+   return v
 
-lit l= do
-   string l
-   commentsOrSpaces
+quotedString = tk $
+    do char '"'
+       content <- many quotedChar
+       char '"' <?> "quote at end of cell"
+       return  content
+
+quotedChar =
+        noneOf "\"\\"
+    <|> try (string "\\\"" >> return '"')
+
+integer = tk $ do
+   d <- many1 digit
+   return $ IntExpr $ read d
+   
+
+ident :: IParser String
+ident = tk $ do
+   h <- letter
+   r <- many $ alphaNum <|> oneOf "_"
+   return $ h:r
+
+lit :: String -> IParser String
+lit l = tk $ string l
+
+objPair = do
+   key <-expr
+   lit ":"
+   value <- expr
+   return (key,value)
+
+obj = do
+   lit "{"
+   o <- sepBy objPair  (lit ",")
+   lit "}"
+   return $ Object o
+
+identExpr = do
+   i <- ident
+   return $ Identifier i
+
+parensExpr :: IParser Expr
+parensExpr = do
+   lit "("
+   e <- expr
+   lit ")"
+   return e
+
+expr    = buildExpressionParser table term
+        <?> "expression"
+
+quotedStringExpr = liftM StrExpr quotedString
+
+term    =  parensExpr 
+        <|> identExpr
+        <|> obj
+        <|> quotedStringExpr
+        <|> integer
+        <?> "simple expression"
+
+table   = [ [Infix (do{ char '.'; return Projection }) AssocLeft ]
+          , [prefix "-" Neg, prefix "+" id ]
+          , [binary "*" Mult AssocLeft, binary "/" Div AssocLeft ]
+          , [binary "+" Plus AssocLeft, binary "-" Subtract AssocLeft ]
+          ]
+        
+binary  name fun assoc = Infix (do{ lit name; return fun }) assoc
+prefix  name fun       = Prefix (do{ lit name; return fun })
+postfix name fun       = Postfix (do{ lit name; return fun })
+
 
 
 argDef = ident
 
-defQueryBlockElement =   try tableDef
-                     <|> mapDef
+def = try scalarDef
+  <|> functionDef
 
-tableDef = do
-   lit "table"
-   lit "="
-   i <- ident
-   return $ DefQPropTable i
 
-cenas _ _ = DefQPropMap "olare"
-
-mapDef = withBlock cenas (lit "map") (lit "ola")
-
-defQueryHead = do
-   lit "def_query"
+functionHeader = do
    i <- ident
    lit "("
    args<-sepBy argDef (char ',')
@@ -71,15 +144,36 @@ defQueryHead = do
    lit ":"
    return $ FunctionHeader i args
 
-defQuery = withBlock DefQuery defQueryHead defQueryBlockElement
+functionDHeader = do
+   lit "def"
+   functionHeader
 
-defs = defQuery
 
+functionDef = withBlock DefFn functionDHeader expr
+
+
+scalarDef = do
+   lit "def"
+   i <- ident
+   lit "="
+   e <- expr
+   return $ DefScalar i e
+
+defQueryHead = do
+   lit "def_query"
+   functionHeader
+
+defQuery = withBlock DefQuery defQueryHead def
+
+gdefs :: IParser DefQuery
+gdefs = defQuery
+
+prog :: IParser [DefQuery]
 prog = do
    commentsOrSpaces
-   defs <- many defs
+   pdefs <- many gdefs
    eof
-   return defs
+   return pdefs
 
 parseProg fname input = iParse prog fname input
 
