@@ -2,6 +2,11 @@
 
 module Parser(
    parseProg
+   ,ArgDeclarations
+   ,Name
+   ,Expr
+   ,FunctionHeader
+   ,Def
 )where
 
 import Text.Parsec hiding (State)
@@ -34,11 +39,9 @@ data Expr = Identifier Name
 data FunctionHeader = FunctionHeader Name ArgDeclarations
    deriving (Show)
 
-data DefQuery = DefQuery FunctionHeader [Def]
-   deriving (Show)
-
 data Def = DefScalar Name Expr
          | DefFn FunctionHeader [Expr]
+         | DefQuery FunctionHeader [Def]
    deriving (Show)
 
 
@@ -165,10 +168,11 @@ defQueryHead = do
 
 defQuery = withBlock DefQuery defQueryHead def
 
-gdefs :: IParser DefQuery
+gdefs :: IParser Def
 gdefs = defQuery
+    <|> def
 
-prog :: IParser [DefQuery]
+prog :: IParser [Def]
 prog = do
    commentsOrSpaces
    pdefs <- many gdefs
