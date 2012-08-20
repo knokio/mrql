@@ -1,4 +1,5 @@
 -- select mean(age) as res from stuff 
+export media_stuff
 
 def_query media_stuff():
    def table = stuff

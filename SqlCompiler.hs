@@ -1,5 +1,5 @@
 module SqlCompiler(
-   getSql
+   compile
 )where
 
 import Parser
@@ -23,24 +23,38 @@ push = do
    c <- get
    put $ Map.empty:c
 
-regDef :: (Name, DefVal) -> State Context ()
-regDef (n,d) = do
+regDef :: Expr -> State Context ()
+regDef (Def n d) = do
    t:r <- get
    put $ Map.insert n d t :r
+refDef _ = return ()
 
-regListDefs :: [(Name, DefVal)] -> State Context ()
-regListDefs l = do
-   t:r <- get
-   put $ (t `Map.union` (Map.fromList l)):r
-  
+regDefs :: [Expr] -> State Context ()
+regDefs l =
+   forM_ l $ \x -> do
+      regDef x
 
 getDef :: Name -> State Context (Maybe DefVal)
 getDef n = do
    c <- get
    return $ msum $ map (Map.lookup n) c
 
+compileM defs =
+   regDefs defs
 
---compile [DefQuery _ defs] = 
+compile' (Program a b) = 
+   Right $
+      show $
+         runState (compileM b) [Map.empty]
 
-getSql fname input = parseProg fname input
+compile :: String -> String -> Either String String
+compile fname input = 
+   let
+      sintaxTree = parseProg fname input
+   in
+      case (sintaxTree) of
+         Left err -> Left $ "Parse error:\n" ++ show err 
+         Right x  -> compile' x
+
+      
 

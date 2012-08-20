@@ -2,11 +2,9 @@
 
 module Parser(
    parseProg
-   ,ArgDeclarations
-   ,Name
-   ,Expr
-   ,FunctionHeader
-   ,Def
+   ,Name(..)
+   ,Expr(..)
+   ,Program(..)
 )where
 
 import Text.Parsec hiding (State)
@@ -20,9 +18,11 @@ iParse :: IParser a -> SourceName -> String -> Either ParseError a
 iParse aParser source_name input =
   runIndent source_name $ runParserT aParser () source_name input
 
-type ArgDeclarations = [String]
 type Name = String
+type Param = String
 
+data Program = Program [String] [Expr]
+   deriving (Show)
 
 data Expr = Identifier Name
           | Object [(Expr,Expr)]
@@ -34,16 +34,10 @@ data Expr = Identifier Name
           | StrExpr String
           | IntExpr Integer
           | Projection Expr Expr
+          | Seq [Expr]
+          | Fn [Param] Expr
+          | Def Name Expr
    deriving (Show)
-
-data FunctionHeader = FunctionHeader Name ArgDeclarations
-   deriving (Show)
-
-data Def = DefScalar Name Expr
-         | DefFn FunctionHeader [Expr]
-         | DefQuery FunctionHeader [Def]
-   deriving (Show)
-
 
 
 lineComment = do
@@ -145,39 +139,51 @@ functionHeader = do
    args<-sepBy argDef (char ',')
    lit ")"
    lit ":"
-   return $ FunctionHeader i args
+   return $ (i, args)
 
 functionDHeader = do
    lit "def"
    functionHeader
 
 
-functionDef = withBlock DefFn functionDHeader expr
+functionDef' = withBlock (,) functionDHeader expr
 
+functionDef = do
+   ((n,p),es) <- functionDef'
+   return $ Def n (Fn p (Seq es))
 
 scalarDef = do
    lit "def"
    i <- ident
    lit "="
    e <- expr
-   return $ DefScalar i e
+   return $ Def i e
 
 defQueryHead = do
    lit "def_query"
    functionHeader
 
-defQuery = withBlock DefQuery defQueryHead def
+defQuery' = withBlock (,) defQueryHead def
 
-gdefs :: IParser Def
+defQuery = do
+   ((n,p), d) <- defQuery'
+   return $ Def n (Fn p (Seq d))
+
+exports = do
+   lit "export"
+   sepBy ident (lit ",")
+
+gdefs :: IParser Expr
 gdefs = defQuery
     <|> def
 
-prog :: IParser [Def]
+prog :: IParser Program
 prog = do
    commentsOrSpaces
+   e <- exports
    pdefs <- many gdefs
    eof
-   return pdefs
+   return $ Program e pdefs
 
 parseProg fname input = iParse prog fname input
 
