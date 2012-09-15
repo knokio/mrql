@@ -5,6 +5,7 @@ module Parser(
    ,Name(..)
    ,Expr(..)
    ,Program(..)
+   ,replaceExpr
 )where
 
 import Text.Parsec hiding (State)
@@ -34,18 +35,40 @@ data Expr = Identifier Name
           | StrExpr String
           | IntExpr Integer
           | Projection Expr Expr
-          | Seq [Expr]
-          | Fn [Param] Expr
+          | Fn [Param] [Expr]
+          | Query [Param] [Expr]
           | Def Name Expr
-   deriving (Show)
+   deriving (Show, Eq)
 
+
+
+
+replaceExpr :: Expr -> Expr -> Expr -> Expr
+replaceExpr find replace expr | expr == find = replace 
+replaceExpr f r (Object l) = Object $ map (\(x,y) -> (replaceExpr f r x, replaceExpr f r y)) l
+replaceExpr f r (Neg e) = Neg $replaceExpr f r e
+replaceExpr f r (Plus a b) = Plus (replaceExpr f r a) (replaceExpr f r b)
+replaceExpr f r (Subtract a b) = Subtract (replaceExpr f r a) (replaceExpr f r b)
+replaceExpr f r (Mult a b) = Mult (replaceExpr f r a) (replaceExpr f r b)
+replaceExpr f r (Div a b) = Div (replaceExpr f r a) (replaceExpr f r b)
+replaceExpr f r (Projection a b) = Projection (replaceExpr f r a) (replaceExpr f r b)
+replaceExpr f r (Fn a b) = Fn  a  (map  (replaceExpr f r) b)
+replaceExpr f r (Query a b) = Query  a  (map  (replaceExpr f r) b)
+replaceExpr f r (Def a b) = Def a (replaceExpr f r b)
+replaceExpr f r e = e
 
 lineComment = do
    string "--"
    skipMany $ noneOf "\n\r"
    newline
 
-commentOrSpace =   lineComment
+blockComment = do
+   string "{-"
+   manyTill anyChar (string "-}") 
+   return ' '
+
+commentOrSpace =   try lineComment
+               <|> try blockComment
                <|> space
 
 commentsOrSpaces = skipMany commentOrSpace
@@ -150,7 +173,7 @@ functionDef' = withBlock (,) functionDHeader expr
 
 functionDef = do
    ((n,p),es) <- functionDef'
-   return $ Def n (Fn p (Seq es))
+   return $ Def n (Fn p es)
 
 scalarDef = do
    lit "def"
@@ -167,7 +190,7 @@ defQuery' = withBlock (,) defQueryHead def
 
 defQuery = do
    ((n,p), d) <- defQuery'
-   return $ Def n (Fn p (Seq d))
+   return $ Def n (Query p d)
 
 exports = do
    lit "export"
