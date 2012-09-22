@@ -5,7 +5,6 @@ def_query media_stuff():
    def table = stuff
 
    def map(row):
-      --def ast = 30
       {"count":1,"sum":row.age}
 
    def reduce(a,b):
@@ -13,4 +12,3 @@ def_query media_stuff():
 
    def finalize(final_row):
       {"res": final_row.sum / final_row.count}
-

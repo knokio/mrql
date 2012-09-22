@@ -112,14 +112,48 @@ buildReduceSelect fn@(Fn args exps)  = do
    push
    fnProcessInitExprs fn
    let Object resObj = (last exps)
-   let lres = map (procBaseReduce args ) resObj
+   lres <- mapM (procBaseReduce args ) resObj
    pop
-   return $ \x -> show lres 
-      
-procBaseReduce args (StrExpr n, e)= procBaseReduceE args e 
+   return (\x ->  Str.join ", " ( map (\y-> y x) lres ))
 
-procBaseReduceE [a1,a2] p@(Plus p1 p2) = replaceExpr (Identifier a1) (Identifier "###") p
-   
+procBaseReduce :: [Name] -> (Expr, Expr) -> Compiler Compiled
+procBaseReduce args (StrExpr n, e) = do
+   exp <- procBaseReduceE args e
+   return (\x -> exp x ++ " as " ++ n)
+
+procBaseReduceE args p@(Plus p1 p2) = do
+   inner <- getReducePreFn args p1 p2
+   return (\x -> "sum("++ inner x ++")")
+
+
+brotherExprs (v1,v2) (e1,e2) =
+   if not $ findExpr v1 e1 then
+      if not $ findExpr v2 e2 then
+        replaceExpr v2 (Identifier "#") e1 == replaceExpr v1 (Identifier "#") e2
+      else 
+         False
+   else
+      if not (findExpr v2 e1) && not (findExpr v1 e2) then
+        replaceExpr v2 (Identifier "#") e2 == replaceExpr v1 (Identifier "#") e1
+      else
+         False
+         
+getReducePreFn :: [Name] -> Expr -> Expr -> Compiler Compiled
+getReducePreFn [a1,a2] e1 e2 =
+   let
+      i1 = Identifier a1
+      i2 = Identifier a2
+      is = Identifier "#"
+   in
+      if brotherExprs (i1, i2) (e1,e2) then
+         do
+            push
+            regCompiled "#" (\x->x!!0)
+            exp <- buildExpr $ replaceExpr i1 is (replaceExpr i2 is e1)
+            pop
+            return exp  
+      else
+         throwError "Can't calculate reduce"
 
 
 buildQuery :: [Expr] -> Compiler Compiled
@@ -132,7 +166,7 @@ buildQuery defs = do
    let res_map = "select " ++ map_select ++" from " ++ sourceTable [] ++ " a"
    
    reduce_select <- buildReduceSelect $ getDefFromList "reduce" defs
-   let res = "select " ++ reduce_select [] ++ " from (" ++ res_map ++ ") b"
+   let res = "select " ++ reduce_select ["b"] ++ " from (" ++ res_map ++ ") b"
 
    pop
    return (\x -> res) 
@@ -162,5 +196,6 @@ compile fname input =
       case (sintaxTree) of
          Left err -> Left $ "Parse error:\n" ++ show err 
          Right x  -> runCompiler sqlCompiler x
+         --Right x -> Right $ show sintaxTree
 
 

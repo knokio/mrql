@@ -6,6 +6,7 @@ module Parser(
    ,Expr(..)
    ,Program(..)
    ,replaceExpr
+   ,findExpr
 )where
 
 import Text.Parsec hiding (State)
@@ -40,6 +41,20 @@ data Expr = Identifier Name
           | Def Name Expr
    deriving (Show, Eq)
 
+
+findExpr :: Expr -> Expr -> Bool
+findExpr find expr | expr == find = True 
+findExpr f (Object l) = or $ map (\(x,y) -> findExpr f x || findExpr f y) l
+findExpr f (Neg e) = findExpr f e
+findExpr f (Plus a b) =  findExpr f a || findExpr f b
+findExpr f (Subtract a b) = findExpr f a || findExpr f b
+findExpr f (Mult a b) = findExpr f a || findExpr f b
+findExpr f (Div a b) = findExpr f a || findExpr f b
+findExpr f (Projection a b) = findExpr f a || findExpr f b
+findExpr f (Fn a b) = or $(map  (findExpr f) b)
+findExpr f (Query a b) = and $ (map  (findExpr f) b)
+findExpr f (Def a b) = findExpr f b
+findExpr f e = False
 
 
 
@@ -131,9 +146,10 @@ expr    = buildExpressionParser table term
 
 quotedStringExpr = liftM StrExpr quotedString
 
-term    =  parensExpr 
+term    =   obj
+        <|> parensExpr
+        <|> try scalarDef
         <|> identExpr
-        <|> obj
         <|> quotedStringExpr
         <|> integer
         <?> "simple expression"
@@ -154,6 +170,7 @@ argDef = ident
 
 def = try scalarDef
   <|> functionDef
+  <?> "Def"
 
 
 functionHeader = do
@@ -197,8 +214,9 @@ exports = do
    sepBy ident (lit ",")
 
 gdefs :: IParser Expr
-gdefs = defQuery
+gdefs = try defQuery
     <|> def
+    <?> "Global def"
 
 prog :: IParser Program
 prog = do
